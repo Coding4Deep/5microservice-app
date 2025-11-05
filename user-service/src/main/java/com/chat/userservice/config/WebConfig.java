@@ -9,7 +9,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.util.Arrays;
 
 @Configuration
-public final class WebConfig {
+public class WebConfig {
     @Value("${CORS_ORIGINS:*}")
     private String corsOrigins;
 

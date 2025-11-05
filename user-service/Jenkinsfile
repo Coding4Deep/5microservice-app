@@ -37,7 +37,7 @@ pipeline {
                 }
                 stage('SpotBugs') {
                     steps {
-                        sh 'mvn spotbugs:check'
+                        sh 'mvn spotbugs:check'  # mvn compile com.github.spotbugs:spotbugs-maven-plugin:4.9.8.1:check
                     }
                     post {
                         always {
@@ -57,7 +57,7 @@ pipeline {
         
         stage('Dependency Scan') {
             steps {
-                sh 'mvn org.owasp:dependency-check-maven:check'
+                sh 'mvn org.owasp:dependency-check-maven:check  -DnvdDatafeedUrl="" -DautoUpdate=false  -Dnvd.api.key=D5084D18-75BA-F011-8364-0EBF96DE670D'
             }
             post {
                 always {

@@ -17,8 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.OncePerRequestFilter;
 import io.micrometer.prometheus.PrometheusMeterRegistry;
 
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -120,11 +122,17 @@ class RequestLoggingFilter extends OncePerRequestFilter {
             log.put("instance_id", instanceId);
             log.put("environment", environment);
 
-            new java.io.File(logDir).mkdirs();
-            try (FileWriter fw = new FileWriter(logDir + "/app.log", true)) {
+            File logDirFile = new File(logDir);
+            if (!logDirFile.exists() && !logDirFile.mkdirs()) {
+                System.err.println("Failed to create log directory: " + logDir);
+                return;
+            }
+            try (FileWriter fw = new FileWriter(logDir + "/app.log", StandardCharsets.UTF_8, true)) {
                 fw.write(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(log));
                 fw.write("\n");
-            } catch (Exception ignored) {}
+            } catch (IOException e) {
+                System.err.println("Failed to write log: " + e.getMessage());
+            }
         }
     }
 }

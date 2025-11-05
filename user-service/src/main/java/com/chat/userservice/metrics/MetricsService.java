@@ -14,6 +14,7 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.OperatingSystemMXBean;
 import java.sql.Connection;
+import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -60,7 +61,7 @@ public class MetricsService {
     }
 
     @PostConstruct
-    public void initializeMetrics() {
+    public synchronized void initializeMetrics() {
         this.deploymentTags = Tags.of(
             "service", "user-service",
             "version", serviceVersion != null ? serviceVersion : "1.0.0",
@@ -161,8 +162,9 @@ public class MetricsService {
 
         // Database status
         String dbStatus = "connected";
-        try (Connection conn = dataSource.getConnection()) {
-            conn.createStatement().execute("SELECT 1");
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("SELECT 1");
         } catch (Exception e) {
             dbStatus = "disconnected";
         }

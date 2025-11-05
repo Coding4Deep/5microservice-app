@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Suppress unread field warnings for metrics fields that are used by Micrometer -->
+    <Match>
+        <Bug pattern="URF_UNREAD_FIELD"/>
+        <Class name="com.chat.userservice.metrics.MetricsService"/>
+    </Match>
+    
+    <!-- Suppress exposure warnings for dependency injection -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Class name="com.chat.userservice.metrics.MetricsService"/>
+    </Match>
+    
+    <!-- Suppress HTTP header warnings for logging filter -->
+    <Match>
+        <Bug pattern="HRS_REQUEST_PARAMETER_TO_HTTP_HEADER"/>
+        <Class name="com.chat.userservice.controller.RequestLoggingFilter"/>
+    </Match>
+</FindBugsFilter>

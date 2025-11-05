@@ -130,6 +130,16 @@
 					</execution>
 				</executions>
 			</plugin>
+			<plugin>
+				<groupId>com.github.spotbugs</groupId>
+				<artifactId>spotbugs-maven-plugin</artifactId>
+				<version>4.9.8.1</version>
+				<configuration>
+					<excludeFilterFile>spotbugs-exclude.xml</excludeFilterFile>
+					<effort>Max</effort>
+					<threshold>Medium</threshold>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
 </project>
