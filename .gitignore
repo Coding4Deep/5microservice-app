@@ -81,6 +81,7 @@ venv.bak/
 .mypy_cache/
 .tox/
 
+
 # Go
 *.exe
 *.exe~
@@ -127,5 +128,9 @@ lcov.info
 /chat-service/node_modules
 /profile-service/__pycache__
 /posts-service/posts-service
+
+# Uploads
+uploads/profiles/*
+uploads/temp/*
 
 
