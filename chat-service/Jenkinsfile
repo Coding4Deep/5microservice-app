@@ -1,0 +1,271 @@
+pipeline {
+    agent any
+    
+    environment {
+        SERVICE_NAME = 'chat-service'
+        DOCKER_REGISTRY = 'your-registry.com'
+        IMAGE_NAME = "${DOCKER_REGISTRY}/${SERVICE_NAME}"
+        SONAR_PROJECT_KEY = "${SERVICE_NAME}"
+        COVERAGE_THRESHOLD = '80'
+        NODE_VERSION = '18'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                    env.BUILD_TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+        
+        stage('Static Analysis') {
+            parallel {
+                stage('ESLint') {
+                    steps {
+                        sh """
+                            npm install
+                            npm run lint || true
+                        """
+                    }
+                    post {
+                        always {
+                            publishCheckStyleResults pattern: 'eslint-report.xml'
+                        }
+                    }
+                }
+                stage('SonarQube') {
+                    steps {
+                        withSonarQubeEnv('SonarQube') {
+                            sh """
+                                npm install sonarqube-scanner --save-dev
+                                npx sonar-scanner -Dsonar.projectKey=${SONAR_PROJECT_KEY}
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Dependency Scan') {
+            steps {
+                sh """
+                    npm audit --audit-level=high --json > npm-audit.json || true
+                    npm install -g retire
+                    retire --outputformat json --outputpath retire-report.json || true
+                """
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'npm-audit.json,retire-report.json', fingerprint: true
+                }
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh """
+                    npm install
+                    npm run build || echo 'No build script defined'
+                """
+            }
+        }
+        
+        stage('Unit Tests') {
+            steps {
+                sh 'npm test'
+            }
+            post {
+                always {
+                    publishTestResults testResultsPattern: 'test-results.xml'
+                }
+            }
+        }
+        
+        stage('Code Coverage') {
+            steps {
+                sh 'npm run test:coverage'
+                script {
+                    def coverage = readJSON file: 'coverage/coverage-summary.json'
+                    def linesCoverage = coverage.total.lines.pct
+                    if (linesCoverage < COVERAGE_THRESHOLD.toInteger()) {
+                        error("Code coverage ${linesCoverage}% below ${COVERAGE_THRESHOLD}% threshold")
+                    }
+                }
+            }
+            post {
+                always {
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'coverage/lcov-report',
+                        reportFiles: 'index.html',
+                        reportName: 'Coverage Report'
+                    ])
+                }
+            }
+        }
+        
+        stage('Container Build') {
+            steps {
+                script {
+                    def image = docker.build("${IMAGE_NAME}:${BUILD_TAG}")
+                    docker.build("${IMAGE_NAME}:latest")
+                }
+            }
+        }
+        
+        stage('Image Scan') {
+            steps {
+                sh """
+                    trivy image --format json --output trivy-report.json ${IMAGE_NAME}:${BUILD_TAG}
+                    trivy image --severity HIGH,CRITICAL --exit-code 1 ${IMAGE_NAME}:${BUILD_TAG}
+                """
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-report.json', fingerprint: true
+                }
+            }
+        }
+        
+        stage('Push to Registry') {
+            steps {
+                script {
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", 'docker-registry-credentials') {
+                        docker.image("${IMAGE_NAME}:${BUILD_TAG}").push()
+                        docker.image("${IMAGE_NAME}:latest").push()
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Dev') {
+            steps {
+                script {
+                    sh """
+                        kubectl set image deployment/${SERVICE_NAME} ${SERVICE_NAME}=${IMAGE_NAME}:${BUILD_TAG} -n dev
+                        kubectl rollout status deployment/${SERVICE_NAME} -n dev --timeout=300s
+                    """
+                }
+            }
+        }
+        
+        stage('DAST') {
+            steps {
+                sh """
+                    docker run --rm -v \$(pwd):/zap/wrk/:rw -t owasp/zap2docker-stable zap-baseline.py \\
+                        -t http://dev-${SERVICE_NAME}.example.com/health \\
+                        -J zap-report.json
+                """
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'zap-report.json', fingerprint: true
+                }
+            }
+        }
+        
+        stage('Integration / E2E') {
+            steps {
+                sh """
+                    # Health check
+                    curl -f http://dev-${SERVICE_NAME}.example.com/health
+                    
+                    # Socket.IO connection test
+                    npm run test:integration
+                    
+                    # Message flow test
+                    curl -X POST http://dev-${SERVICE_NAME}.example.com/api/messages \\
+                         -H "Content-Type: application/json" \\
+                         -d '{"user":"test","message":"integration test"}'
+                """
+            }
+        }
+        
+        stage('Observability Verification') {
+            steps {
+                sh """
+                    # Check metrics endpoint
+                    curl -f http://dev-${SERVICE_NAME}.example.com/metrics
+                    
+                    # Verify traces in Jaeger
+                    curl -f "http://jaeger.example.com/api/traces?service=${SERVICE_NAME}&limit=1"
+                """
+            }
+        }
+        
+        stage('Manual Approval') {
+            when {
+                branch 'main'
+            }
+            steps {
+                timeout(time: 24, unit: 'HOURS') {
+                    input message: 'Deploy to Production?', 
+                          ok: 'Deploy',
+                          submitterParameter: 'APPROVER'
+                }
+            }
+        }
+        
+        stage('Deploy to Prod') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    sh """
+                        kubectl set image deployment/${SERVICE_NAME} ${SERVICE_NAME}=${IMAGE_NAME}:${BUILD_TAG} -n prod
+                        kubectl rollout status deployment/${SERVICE_NAME} -n prod --timeout=600s
+                    """
+                }
+            }
+        }
+        
+        stage('Notifications') {
+            steps {
+                script {
+                    def status = currentBuild.currentResult
+                    def color = status == 'SUCCESS' ? 'good' : 'danger'
+                    def message = """
+                        *${SERVICE_NAME} Pipeline ${status}*
+                        Build: ${BUILD_TAG}
+                        Branch: ${env.BRANCH_NAME}
+                        Approver: ${env.APPROVER ?: 'N/A'}
+                    """
+                    
+                    slackSend(
+                        channel: '#deployments',
+                        color: color,
+                        message: message
+                    )
+                    
+                    emailext(
+                        subject: "${SERVICE_NAME} Pipeline ${status} - ${BUILD_TAG}",
+                        body: message,
+                        to: 'devops@example.com'
+                    )
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        failure {
+            slackSend(
+                channel: '#alerts',
+                color: 'danger',
+                message: ":x: ${SERVICE_NAME} pipeline failed at stage: ${env.STAGE_NAME}"
+            )
+        }
+    }
+}
