@@ -129,8 +129,12 @@ lcov.info
 /profile-service/__pycache__
 /posts-service/posts-service
 
-# Uploads
-uploads/profiles/*
-uploads/temp/*
+# Uploads - keep directories but ignore uploaded files
+profile-service/uploads/profiles/*.jpg
+profile-service/uploads/profiles/*.jpeg
+profile-service/uploads/profiles/*.png
+profile-service/uploads/profiles/*.gif
+profile-service/uploads/temp/*
+!profile-service/uploads/profiles/.gitkeep
 
 
