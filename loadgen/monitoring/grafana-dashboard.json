@@ -1,0 +1,60 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Load Generator Dashboard",
+    "tags": ["loadgen"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(loadgen_requests_total[5m])",
+            "legendFormat": "{{service}} - {{method}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(loadgen_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "P95 Latency"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Active Users",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "loadgen_active_users",
+            "legendFormat": "Users"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "WebSocket Connections",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "loadgen_websocket_connections",
+            "legendFormat": "Connections"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 8}
+      }
+    ],
+    "time": {"from": "now-5m", "to": "now"},
+    "refresh": "5s"
+  }
+}

@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  loadgen:
+    build: .
+    command: ["./loadgen", "--users", "50", "--duration", "5m", "--ramp", "10/s"]
+    ports:
+      - "9090:9090"
+    depends_on:
+      - prometheus
+      - grafana
+    networks:
+      - loadgen-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - loadgen-net
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./monitoring/grafana-dashboard.json:/var/lib/grafana/dashboards/loadgen.json
+    networks:
+      - loadgen-net
+
+networks:
+  loadgen-net:
+    driver: bridge

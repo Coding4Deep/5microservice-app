@@ -1,0 +1,25 @@
+# Binaries
+loadgen
+*.exe
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+*.mod.sum

@@ -138,3 +138,8 @@ profile-service/uploads/temp/*
 !profile-service/uploads/profiles/.gitkeep
 
 
+# Load Generator
+loadgen/loadgen
+loadgen/.env
+loadgen/*.log
+loadgen/logs/

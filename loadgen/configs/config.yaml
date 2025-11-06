@@ -1,0 +1,22 @@
+services:
+  user_service:
+    base_url: "http://localhost:8080"
+    timeout: "10s"
+  chat_service:
+    base_url: "http://localhost:3001"
+    timeout: "10s"
+  posts_service:
+    base_url: "http://localhost:8083"
+    timeout: "10s"
+  profile_service:
+    base_url: "http://localhost:8081"
+    timeout: "10s"
+
+tracing:
+  endpoint: "http://localhost:14268/api/traces"
+  enabled: true
+
+chaos:
+  error_rate: 0.2     # 20% random errors for testing
+  delay_rate: 0.3     # 30% requests get delay for testing
+  max_delay_ms: 1000  # Max 1s delay
