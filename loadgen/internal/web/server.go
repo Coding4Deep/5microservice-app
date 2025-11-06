@@ -211,38 +211,43 @@ const htmlTemplate = `
                   document.getElementById('loadInfo').innerHTML = '<strong>❌ Error:</strong> ' + err.message;
               });
         }
-            fetch('/api/reports')
-                .then(response => response.json())
-                .then(data => {
-                    const reportsDiv = document.getElementById('reports');
-                    if (data.length === 0) {
-                        reportsDiv.innerHTML = '<p>No test reports yet</p>';
-                        return;
-                    }
-                    
-                    reportsDiv.innerHTML = data.map(report => {
-                        const duration = new Date(report.end_time) - new Date(report.start_time);
-                        const durationStr = Math.round(duration / 1000) + 's';
-                        return '<div class="report">' +
-                        '<h4>Test #' + report.id + ' - ' + report.status.toUpperCase() + '</h4>' +
-                        '<p><strong>Config:</strong> ' + report.users + ' users, ' + report.duration + ' duration, ' + report.ramp + ' ramp-up</p>' +
-                        '<p><strong>Started:</strong> ' + new Date(report.start_time).toLocaleString() + '</p>' +
-                        '<p><strong>Ended:</strong> ' + new Date(report.end_time).toLocaleString() + '</p>' +
-                        '<p><strong>Actual Duration:</strong> ' + durationStr + '</p>' +
-                        '</div>';
-                    }).reverse().join('');
-                });
-        }
+			function updateReports() {
+				fetch('/api/reports')
+					.then(response => response.json())
+					.then(data => {
+						const reportsDiv = document.getElementById('reports');
+						if (data.length === 0) {
+							reportsDiv.innerHTML = '<p>No test reports yet</p>';
+							return;
+						}
 
-        // Update every 2 seconds
-        setInterval(() => {
-            updateStatus();
-            updateReports();
-        }, 2000);
+						reportsDiv.innerHTML = data.map(report => {
+							const duration = new Date(report.end_time) - new Date(report.start_time);
+							const durationStr = Math.round(duration / 1000) + 's';
+							return '<div class="report">' +
+							'<h4>Test #' + report.id + ' - ' + report.status.toUpperCase() + '</h4>' +
+							'<p><strong>Config:</strong> ' + report.users + ' users, ' + report.duration + ' duration, ' + report.ramp + ' ramp-up</p>' +
+							'<p><strong>Started:</strong> ' + new Date(report.start_time).toLocaleString() + '</p>' +
+							'<p><strong>Ended:</strong> ' + new Date(report.end_time).toLocaleString() + '</p>' +
+							'<p><strong>Actual Duration:</strong> ' + durationStr + '</p>' +
+							'</div>';
+						}).reverse().join('');
+					})
+					.catch(err => {
+						console.error('Failed to load reports:', err);
+						document.getElementById('reports').innerHTML = '<p>Error loading reports</p>';
+					});
+			}
 
-        // Initial load
-        updateStatus();
-        updateReports();
+			// Update every 2 seconds
+			setInterval(() => {
+				updateStatus();
+				updateReports();
+			}, 2000);
+
+			// Initial load
+			updateStatus();
+			updateReports();
     </script>
 </body>
 </html>
