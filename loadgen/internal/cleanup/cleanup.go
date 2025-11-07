@@ -8,6 +8,8 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"loadgen/internal/config"
@@ -58,7 +60,8 @@ func (c *Cleanup) ReduceLoad(ctx context.Context, usersToDelete int) int {
 	}
 
 	// First, attempt to delete user accounts from user-service
-	deletedUsers := c.cleanupUsers(ctx, selectedUsers)
+	deletedList, _ := c.cleanupUsers(ctx, selectedUsers)
+	deletedUsers := len(deletedList)
 
 	// Cleanup chat messages and posts for the selected users (best-effort)
 	c.cleanupChatMessagesFromUsers(ctx, selectedUsers)
@@ -85,9 +88,10 @@ func (c *Cleanup) ReduceLoad(ctx context.Context, usersToDelete int) int {
 }
 
 // cleanupUsers sends DELETE requests to the user service for the given usernames.
-// Returns the number of successful deletions.
-func (c *Cleanup) cleanupUsers(ctx context.Context, users []string) int {
-	deleted := 0
+// Returns a slice of usernames that were successfully deleted and a map of failed usernames to HTTP status codes.
+func (c *Cleanup) cleanupUsers(ctx context.Context, users []string) ([]string, map[string]int) {
+	deleted := make([]string, 0)
+	failed := make(map[string]int)
 	for _, u := range users {
 		url := c.config.Services.UserService.BaseURL + "/api/users/" + u
 		log.Printf("➡️ Deleting user via: %s", url)
@@ -95,6 +99,7 @@ func (c *Cleanup) cleanupUsers(ctx context.Context, users []string) int {
 		resp, err := c.client.Do(req)
 		if err != nil {
 			log.Printf("⚠️ Failed to delete user %s: %v", u, err)
+			failed[u] = 0
 			continue
 		}
 		// Read and close body for better diagnostics
@@ -102,13 +107,259 @@ func (c *Cleanup) cleanupUsers(ctx context.Context, users []string) int {
 		resp.Body.Close()
 		log.Printf("⬅️ Response for DELETE %s: status=%d body=%s", url, resp.StatusCode, string(body))
 		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent {
-			deleted++
+			deleted = append(deleted, u)
 			log.Printf("✅ Deleted user account: %s", u)
 		} else {
 			log.Printf("⚠️ Could not delete user %s, status: %d", u, resp.StatusCode)
+			failed[u] = resp.StatusCode
 		}
 	}
-	return deleted
+	return deleted, failed
+}
+
+// DeleteTestUsers queries the user-service dashboard for users whose usernames start with
+// the test user prefix ("user_"), and deletes up to `count` of them. It returns the list
+// of usernames that were deleted.
+func (c *Cleanup) DeleteTestUsers(ctx context.Context, count int) ([]string, map[string]int) {
+	if count <= 0 {
+		return []string{}, map[string]int{}
+	}
+
+	// Try to fetch user list from user-service dashboard
+	dashboardURL := c.config.Services.UserService.BaseURL + "/api/users/dashboard"
+	req, _ := http.NewRequestWithContext(ctx, "GET", dashboardURL, nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch dashboard: %v", err)
+		return []string{}, map[string]int{}
+	}
+	defer resp.Body.Close()
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		log.Printf("⚠️ Failed to decode dashboard response: %v", err)
+		return []string{}, map[string]int{}
+	}
+
+	// Extract users array (if available). Items may be strings or objects with a "username" field.
+	candidates := make([]string, 0)
+	if ulist, ok := data["users"]; ok {
+		if arr, ok := ulist.([]interface{}); ok {
+			for _, v := range arr {
+				switch it := v.(type) {
+				case string:
+					if strings.HasPrefix(it, "user_") {
+						candidates = append(candidates, it)
+					}
+				case map[string]interface{}:
+					if uname, ok := it["username"].(string); ok {
+						if strings.HasPrefix(uname, "user_") {
+							candidates = append(candidates, uname)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// If dashboard didn't return users, fall back to tracked list
+	if len(candidates) == 0 {
+		for _, u := range c.users {
+			if strings.HasPrefix(u, "user_") {
+				candidates = append(candidates, u)
+			}
+		}
+	}
+
+	if len(candidates) == 0 {
+		log.Printf("ℹ️ No test users found to delete (prefix 'user_')")
+		return []string{}, map[string]int{}
+	}
+
+	// Ensure uniqueness and deterministic order: shuffle and pick up to count
+	uniq := make([]string, 0)
+	seen := map[string]bool{}
+	for _, s := range candidates {
+		if !seen[s] {
+			seen[s] = true
+			uniq = append(uniq, s)
+		}
+	}
+	rand.Shuffle(len(uniq), func(i, j int) { uniq[i], uniq[j] = uniq[j], uniq[i] })
+
+	toDelete := uniq
+	if count < len(uniq) {
+		toDelete = uniq[:count]
+	}
+
+	// Use existing cleanup path to delete the selected users
+	deleted, failed := c.cleanupUsers(ctx, toDelete)
+
+	// Remove deleted users from tracked list if present
+	remaining := make([]string, 0)
+	delSet := map[string]bool{}
+	for _, d := range deleted {
+		delSet[d] = true
+	}
+	for _, u := range c.users {
+		if !delSet[u] {
+			remaining = append(remaining, u)
+		}
+	}
+	c.users = remaining
+
+	// Log failures for visibility
+	if len(failed) > 0 {
+		for u, code := range failed {
+			log.Printf("⚠️ Failed to delete %s: status=%d", u, code)
+		}
+	}
+
+	return deleted, failed
+}
+
+// DeleteRandomTestUsersConcurrent selects up to `count` test users (username prefix "user_")
+// and deletes them concurrently using up to `concurrency` goroutines.
+func (c *Cleanup) DeleteRandomTestUsersConcurrent(ctx context.Context, count int, concurrency int) ([]string, map[string]int) {
+	if count <= 0 {
+		return []string{}, map[string]int{}
+	}
+
+	// Fetch dashboard similar to DeleteTestUsers
+	dashboardURL := c.config.Services.UserService.BaseURL + "/api/users/dashboard"
+	req, _ := http.NewRequestWithContext(ctx, "GET", dashboardURL, nil)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch dashboard: %v", err)
+		return []string{}, map[string]int{}
+	}
+	defer resp.Body.Close()
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		log.Printf("⚠️ Failed to decode dashboard response: %v", err)
+		return []string{}, map[string]int{}
+	}
+
+	candidates := make([]string, 0)
+	if ulist, ok := data["users"]; ok {
+		if arr, ok := ulist.([]interface{}); ok {
+			for _, v := range arr {
+				switch it := v.(type) {
+				case string:
+					if strings.HasPrefix(it, "user_") {
+						candidates = append(candidates, it)
+					}
+				case map[string]interface{}:
+					if uname, ok := it["username"].(string); ok {
+						if strings.HasPrefix(uname, "user_") {
+							candidates = append(candidates, uname)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// fallback to tracked users
+	if len(candidates) == 0 {
+		for _, u := range c.users {
+			if strings.HasPrefix(u, "user_") {
+				candidates = append(candidates, u)
+			}
+		}
+	}
+
+	if len(candidates) == 0 {
+		log.Printf("ℹ️ No test users found to delete (prefix 'user_')")
+		return []string{}, map[string]int{}
+	}
+
+	// dedupe and shuffle
+	uniq := make([]string, 0)
+	seen := map[string]bool{}
+	for _, s := range candidates {
+		if !seen[s] {
+			seen[s] = true
+			uniq = append(uniq, s)
+		}
+	}
+	rand.Shuffle(len(uniq), func(i, j int) { uniq[i], uniq[j] = uniq[j], uniq[i] })
+
+	toDelete := uniq
+	if count < len(uniq) {
+		toDelete = uniq[:count]
+	}
+
+	if concurrency <= 0 {
+		concurrency = 5
+	}
+	if concurrency > len(toDelete) {
+		concurrency = len(toDelete)
+	}
+
+	// concurrent deletion using DeleteUser which also cleans tracked list on success
+	var mu sync.Mutex
+	deleted := make([]string, 0)
+	failed := make(map[string]int)
+
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for _, u := range toDelete {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(username string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			d, code := c.DeleteUser(ctx, username)
+			mu.Lock()
+			defer mu.Unlock()
+			if d {
+				deleted = append(deleted, username)
+			} else {
+				failed[username] = code
+			}
+		}(u)
+	}
+	wg.Wait()
+
+	// Log failures for visibility
+	if len(failed) > 0 {
+		for u, code := range failed {
+			log.Printf("⚠️ Failed to delete %s: status=%d", u, code)
+		}
+	}
+
+	return deleted, failed
+}
+
+// DeleteUser deletes a single test user by username. Returns (deleted, httpStatus).
+func (c *Cleanup) DeleteUser(ctx context.Context, username string) (bool, int) {
+	if username == "" || !strings.HasPrefix(username, "user_") {
+		return false, http.StatusBadRequest
+	}
+
+	deleted, failed := c.cleanupUsers(ctx, []string{username})
+	if len(deleted) == 1 {
+		// remove from tracked list if present
+		remaining := make([]string, 0)
+		for _, u := range c.users {
+			if u != username {
+				remaining = append(remaining, u)
+			}
+		}
+		c.users = remaining
+		return true, http.StatusOK
+	}
+	if code, ok := failed[username]; ok {
+		return false, code
+	}
+	return false, 0
 }
 
 func (c *Cleanup) cleanupChatMessagesFromUsers(ctx context.Context, users []string) int {

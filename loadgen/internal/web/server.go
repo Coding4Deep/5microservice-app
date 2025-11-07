@@ -62,6 +62,8 @@ func (ws *WebServer) Start(addr string) *http.Server {
 	mux.HandleFunc("/api/overview", ws.handleOverview)
 	mux.HandleFunc("/api/reports", ws.handleReports)
 	mux.HandleFunc("/api/reduce", ws.handleReduceLoad)
+	mux.HandleFunc("/api/delete-users", ws.handleDeleteUsers)
+	mux.HandleFunc("/api/delete-user", ws.handleDeleteUser)
 	mux.HandleFunc("/metrics", ws.handleMetricsProxy)
 
 	server := &http.Server{
@@ -139,7 +141,19 @@ const htmlTemplate = `
 			<button class="btn-danger" onclick="reduceLoad()">Reduce Load</button>
 			<div id="loadInfo" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
 			<div style="margin-top:6px; font-size:13px; color:#444;">Tracked users: <span id="trackedCount">0</span></div>
+				<div id="trackedList" style="margin-top:8px; font-size:13px; color:#333;"></div>
         </div>
+
+		<div class="card">
+			<h2>Delete Users (direct)</h2>
+			<p>Directly delete N test users from the user-service (usernames starting with <code>user_</code>).</p>
+			<div class="form-group">
+				<label>Users to Delete:</label>
+				<input type="number" id="deleteCount" value="10" min="1" max="1000">
+			</div>
+			<button class="btn-danger" onclick="deleteUsersDirect()">Delete Users</button>
+			<div id="deleteInfo" style="margin-top:10px; font-size:14px; color:#666;"></div>
+		</div>
 
         <div class="card">
             <h2>Test Reports</h2>
@@ -193,6 +207,18 @@ const htmlTemplate = `
 						const websockets = data.metrics ? data.metrics.websocket_connections : 0;
 						const requests = data.metrics ? data.metrics.total_requests : 0;
 
+						// Update tracked users list UI
+						const tracked = data.tracked_users || [];
+						document.getElementById('trackedCount').innerText = data.tracked_count || tracked.length || 0;
+						const listDiv = document.getElementById('trackedList');
+						if (tracked.length === 0) {
+							listDiv.innerHTML = '<em>No tracked test users</em>';
+						} else {
+							listDiv.innerHTML = tracked.map(u => {
+								return '<div style="margin:3px 0;">' + u + ' <button onclick="deleteSingleUser(\'' + u + '\')" style="margin-left:8px;padding:2px 6px;">Delete</button></div>';
+							}).join('');
+						}
+
 						metricsDiv.innerHTML = 
 							'<div class="metric"><div class="metric-value">' + totalUsers + '</div><div>Total Users</div></div>' +
 							'<div class="metric"><div class="metric-value">' + activeUsers + '</div><div>Active Users</div></div>' +
@@ -204,8 +230,34 @@ const htmlTemplate = `
 					});
         }
 
+		function deleteSingleUser(username) {
+			if (!confirm('Delete user ' + username + "? This will remove the user account and related posts/messages.")) return;
+			fetch('/api/delete-user', {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({username: username})
+			}).then(r => r.json()).then(data => {
+				if (data.deleted) {
+					// update UI
+					document.getElementById('loadInfo').innerHTML = '<strong>✅ Deleted:</strong> ' + username + '. ' + (data.remaining || 0) + ' users remain.';
+					updateMetrics();
+				} else {
+					document.getElementById('loadInfo').innerHTML = '<strong>❌ Failed to delete:</strong> ' + username + ' (status ' + (data.status_code||'unknown') + ')';
+				}
+			}).catch(err => {
+				document.getElementById('loadInfo').innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+			});
+		}
+
 		function reduceLoad() {
 			const count = parseInt(document.getElementById('reduceCount').value);
+
+			// Confirm large deletions
+			if (count > 50) {
+				if (!confirm('You are about to delete ' + count + ' test users. This cannot be undone. Continue?')) {
+					return;
+				}
+			}
 
 			// Fetch current tracked users first, so we can report which ones were deleted
 			fetch('/api/overview')
@@ -219,18 +271,33 @@ const htmlTemplate = `
 						body: JSON.stringify({count: count})
 					}).then(response => response.json())
 					  .then(data => {
-						  // Fetch overview again to calculate which users were deleted
-						  fetch('/api/overview')
-							.then(r2 => r2.json())
-							.then(after => {
-								const afterUsers = after.tracked_users || [];
-								const deleted = beforeUsers.filter(u => !afterUsers.includes(u));
-								document.getElementById('loadInfo').innerHTML =
-									'<strong>✅ Reduced load:</strong> ' + deleted.length + ' users removed. ' + after.tracked_count + ' users remain.' +
-									(deleted.length ? '<div style="margin-top:6px;"><strong>Deleted:</strong> ' + deleted.join(', ') + '</div>' : '');
+							  // If the server returned deleted_users, use that; otherwise fall back to diffing overview
+							  if (data.deleted_users && Array.isArray(data.deleted_users)) {
+								const deleted = data.deleted_users;
+								let html = '<strong>✅ Reduced load:</strong> ' + deleted.length + ' users removed. ' + (data.remaining || 0) + ' users remain.';
+								if (deleted.length) html += '<div style="margin-top:6px;"><strong>Deleted:</strong> ' + deleted.join(', ') + '</div>';
+								// failed users (if any)
+								if (data.failed_users) {
+									const failed = data.failed_users;
+									const failEntries = Object.keys(failed).map(k => k + ' (status ' + failed[k] + ')');
+									if (failEntries.length) html += '<div style="margin-top:6px;color:#a33;"><strong>Failed to delete:</strong> ' + failEntries.join(', ') + '</div>';
+								}
+								document.getElementById('loadInfo').innerHTML = html;
 								// update tracked count display
-								document.getElementById('trackedCount').innerText = after.tracked_count || 0;
-							});
+								document.getElementById('trackedCount').innerText = data.remaining || 0;
+							  } else {
+								fetch('/api/overview')
+									.then(r2 => r2.json())
+									.then(after => {
+										const afterUsers = after.tracked_users || [];
+										const deleted = beforeUsers.filter(u => !afterUsers.includes(u));
+										document.getElementById('loadInfo').innerHTML =
+											'<strong>✅ Reduced load:</strong> ' + deleted.length + ' users removed. ' + after.tracked_count + ' users remain.' +
+											(deleted.length ? '<div style="margin-top:6px;"><strong>Deleted:</strong> ' + deleted.join(', ') + '</div>' : '');
+										// update tracked count display
+										document.getElementById('trackedCount').innerText = after.tracked_count || 0;
+									});
+							  }
 					  })
 					  .catch(err => {
 						  document.getElementById('loadInfo').innerHTML = '<strong>❌ Error:</strong> ' + err.message;
@@ -239,6 +306,37 @@ const htmlTemplate = `
 				.catch(() => {
 					document.getElementById('loadInfo').innerHTML = '<strong>❌ Error:</strong> Could not fetch tracked users';
 				});
+		}
+
+		function deleteUsersDirect() {
+			const count = parseInt(document.getElementById('deleteCount').value);
+
+			if (count > 50) {
+				if (!confirm('You are about to delete ' + count + ' test users directly from the user-service. This cannot be undone. Continue?')) return;
+			}
+
+			fetch('/api/delete-users', {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({count: count})
+			}).then(r => r.json()).then(data => {
+				if (data && data.deleted_users) {
+					let html = '<strong>✅ Deleted:</strong> ' + (data.deleted_users.length || 0) + ' users. ' + (data.remaining || 0) + ' users remain.';
+					if (data.deleted_users.length) html += '<div style="margin-top:6px;"><strong>Deleted:</strong> ' + data.deleted_users.join(', ') + '</div>';
+					if (data.failed_users) {
+						const failed = data.failed_users;
+						const failEntries = Object.keys(failed).map(k => k + ' (status ' + failed[k] + ')');
+						if (failEntries.length) html += '<div style="margin-top:6px;color:#a33;"><strong>Failed to delete:</strong> ' + failEntries.join(', ') + '</div>';
+					}
+					document.getElementById('deleteInfo').innerHTML = html;
+					// refresh overview/tracked list
+					updateMetrics();
+				} else {
+					document.getElementById('deleteInfo').innerHTML = '<strong>❌ Error:</strong> Unexpected response';
+				}
+			}).catch(err => {
+				document.getElementById('deleteInfo').innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+			});
 		}
 			function updateReports() {
 				fetch('/api/reports')
@@ -375,14 +473,76 @@ func (ws *WebServer) handleReduceLoad(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	deleted := ws.cleanup.ReduceLoad(ctx, req.Count)
+	// Delete test users (usernames starting with "user_") up to requested count
+	deletedUsers, failed := ws.cleanup.DeleteTestUsers(ctx, req.Count)
 	remaining := len(ws.cleanup.GetTrackedUsers())
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"deleted":   deleted,
+		"deleted_count":   len(deletedUsers),
+		"deleted_users":   deletedUsers,
+		"failed_users":    failed,
+		"remaining":       remaining,
+		"status":          "completed",
+	})
+}
+
+func (ws *WebServer) handleDeleteUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct{
+		Count int `json:"count"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Use concurrent deletion; concurrency tuned to 10
+	deletedUsers, failed := ws.cleanup.DeleteRandomTestUsersConcurrent(ctx, req.Count, 10)
+	remaining := len(ws.cleanup.GetTrackedUsers())
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"deleted_count": len(deletedUsers),
+		"deleted_users": deletedUsers,
+		"failed_users": failed,
 		"remaining": remaining,
-		"status":    "completed",
+		"status": "completed",
+	})
+}
+
+func (ws *WebServer) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct{
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	deleted, code := ws.cleanup.DeleteUser(ctx, req.Username)
+	remaining := len(ws.cleanup.GetTrackedUsers())
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"deleted": deleted,
+		"status_code": code,
+		"remaining": remaining,
 	})
 }
 
