@@ -15,10 +15,10 @@ import (
 )
 
 type ChatBehavior struct {
-	baseURL string
-	conn    *websocket.Conn
-	client  *http.Client
-	token   string
+	baseURL  string
+	conn     *websocket.Conn
+	client   *http.Client
+	token    string
 	username string
 }
 
@@ -37,7 +37,7 @@ func NewChat(cfg *config.Config) *ChatBehavior {
 
 func (c *ChatBehavior) Connect(ctx context.Context, token string) {
 	c.token = token
-	
+
 	tracer := otel.Tracer("loadgen")
 	ctx, span := tracer.Start(ctx, "chat.connect")
 	defer span.End()
@@ -68,15 +68,15 @@ func (c *ChatBehavior) Connect(ctx context.Context, token string) {
 	// Socket.IO handshake sequence
 	c.conn.WriteMessage(websocket.TextMessage, []byte("40"))
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Send join message with username
 	username := fmt.Sprintf("loadtest_user_%d", time.Now().Unix()%1000)
 	joinMsg := fmt.Sprintf(`42["join","%s"]`, username)
 	c.conn.WriteMessage(websocket.TextMessage, []byte(joinMsg))
 	c.username = username
-	
+
 	log.Printf("✅ WebSocket connected for %s", username)
-	
+
 	// Listen for messages in background
 	go c.readMessages(ctx)
 

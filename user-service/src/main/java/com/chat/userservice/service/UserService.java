@@ -79,4 +79,14 @@ public class UserService {
     public Optional<User> getUserByUsername(String username) {
         return userRepository.findByUsername(username);
     }
+
+    @Transactional
+    public boolean deleteUser(String username) {
+        Optional<User> userOpt = userRepository.findByUsername(username);
+        if (userOpt.isPresent()) {
+            userRepository.delete(userOpt.get());
+            return true;
+        }
+        return false;
+    }
 }

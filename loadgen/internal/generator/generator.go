@@ -23,17 +23,17 @@ type Generator struct {
 	cleanup  *cleanup.Cleanup
 }
 
-func New(cfg *config.Config, users int, duration time.Duration, ramp string) *Generator {
+func New(cfg *config.Config, users int, duration time.Duration, ramp string, cl *cleanup.Cleanup) *Generator {
 	// Parse ramp rate (e.g., "10/s" -> 10)
 	parts := strings.Split(ramp, "/")
 	rate, _ := strconv.Atoi(parts[0])
-	
+
 	return &Generator{
 		config:   cfg,
 		users:    users,
 		duration: duration,
 		rampRate: rate,
-		cleanup:  cleanup.New(cfg),
+		cleanup:  cl,
 	}
 }
 
@@ -50,7 +50,7 @@ func (g *Generator) Run(ctx context.Context) {
 		go func(userID int) {
 			defer wg.Done()
 			<-userChan // Wait for ramp-up signal
-			
+
 			u := user.New(userID, g.config)
 			g.cleanup.AddUser(u.Username) // Track user for potential cleanup later
 			u.Run(ctx)

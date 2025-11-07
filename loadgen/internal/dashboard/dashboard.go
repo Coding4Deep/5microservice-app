@@ -7,14 +7,14 @@ import (
 )
 
 type Stats struct {
-	TotalRequests   int64
-	SuccessRate     float64
-	AvgLatency      float64
-	P95Latency      float64
-	ActiveUsers     int64
-	WebSocketConns  int64
-	StartTime       time.Time
-	Duration        time.Duration
+	TotalRequests  int64
+	SuccessRate    float64
+	AvgLatency     float64
+	P95Latency     float64
+	ActiveUsers    int64
+	WebSocketConns int64
+	StartTime      time.Time
+	Duration       time.Duration
 }
 
 const dashboardHTML = `
@@ -79,29 +79,29 @@ const dashboardHTML = `
 
 func StartDashboard(addr string) *http.Server {
 	tmpl := template.Must(template.New("dashboard").Parse(dashboardHTML))
-	
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		stats := Stats{
-			TotalRequests:   1234, // TODO: Get from metrics
-			SuccessRate:     98.5,
-			AvgLatency:      45.2,
-			P95Latency:      120.5,
-			ActiveUsers:     50,
-			WebSocketConns:  45,
-			StartTime:       time.Now().Add(-5 * time.Minute),
-			Duration:        5 * time.Minute,
+			TotalRequests:  1234, // TODO: Get from metrics
+			SuccessRate:    98.5,
+			AvgLatency:     45.2,
+			P95Latency:     120.5,
+			ActiveUsers:    50,
+			WebSocketConns: 45,
+			StartTime:      time.Now().Add(-5 * time.Minute),
+			Duration:       5 * time.Minute,
 		}
-		
+
 		w.Header().Set("Content-Type", "text/html")
 		tmpl.Execute(w, stats)
 	})
-	
+
 	server := &http.Server{
 		Addr:    addr,
 		Handler: mux,
 	}
-	
+
 	go server.ListenAndServe()
 	return server
 }

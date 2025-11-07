@@ -1,11 +1,10 @@
 package chaos
 
 import (
-	"context"
+	"loadgen/internal/config"
 	"math/rand"
 	"net/http"
 	"time"
-	"loadgen/internal/config"
 )
 
 type ChaosMiddleware struct {
@@ -40,7 +39,7 @@ func (ct *chaosTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	resp, err := ct.base.RoundTrip(req)
-	
+
 	// Random error injection
 	if err == nil && rand.Float64() < ct.config.ErrorRate {
 		resp.StatusCode = 500

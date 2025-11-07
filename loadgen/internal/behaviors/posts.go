@@ -83,10 +83,10 @@ func (p *PostsBehavior) CreatePost(ctx context.Context, token, content string) {
 	// Create multipart form data for image post
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	
+
 	// Add caption field
 	writer.WriteField("caption", content)
-	
+
 	// Add a dummy image file
 	part, _ := writer.CreateFormFile("image", "test.txt")
 	part.Write([]byte("dummy image content for load test"))
@@ -106,7 +106,7 @@ func (p *PostsBehavior) CreatePost(ctx context.Context, token, content string) {
 
 	status := fmt.Sprintf("%d", resp.StatusCode)
 	metrics.RequestsTotal.WithLabelValues("posts", "create_post", status).Inc()
-	
+
 	if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
 		log.Printf("✅ Created post: %s", content)
 	} else {

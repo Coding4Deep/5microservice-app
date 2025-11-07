@@ -152,4 +152,18 @@ public class UserController {
         }
         return ResponseEntity.ok(Map.of("valid", false));
     }
+
+    @DeleteMapping("/{username}")
+    public ResponseEntity<?> deleteUser(@PathVariable String username) {
+        try {
+            boolean deleted = userService.deleteUser(username);
+            if (deleted) {
+                return ResponseEntity.ok(Map.of("deleted", true, "username", username));
+            } else {
+                return ResponseEntity.status(404).body(Map.of("error", "User not found"));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", "Failed to delete user"));
+        }
+    }
 }

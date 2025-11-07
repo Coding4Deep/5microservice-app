@@ -1,17 +1,17 @@
 package config
 
 import (
+	"gopkg.in/yaml.v3"
 	"os"
 	"strconv"
-	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Services Services `yaml:"services"`
-	Tracing  Tracing  `yaml:"tracing"`
-	Chaos    Chaos    `yaml:"chaos"`
-	WebPort  string   `yaml:"web_port"`
-	MetricsPort string `yaml:"metrics_port"`
+	Services    Services `yaml:"services"`
+	Tracing     Tracing  `yaml:"tracing"`
+	Chaos       Chaos    `yaml:"chaos"`
+	WebPort     string   `yaml:"web_port"`
+	MetricsPort string   `yaml:"metrics_port"`
 }
 
 type Services struct {
@@ -32,9 +32,9 @@ type Tracing struct {
 }
 
 type Chaos struct {
-	ErrorRate    float64 `yaml:"error_rate"`
-	DelayRate    float64 `yaml:"delay_rate"`
-	MaxDelayMs   int     `yaml:"max_delay_ms"`
+	ErrorRate  float64 `yaml:"error_rate"`
+	DelayRate  float64 `yaml:"delay_rate"`
+	MaxDelayMs int     `yaml:"max_delay_ms"`
 }
 
 func Load(path string) (*Config, error) {
@@ -51,9 +51,9 @@ func Load(path string) (*Config, error) {
 			Enabled:  false,
 		},
 		Chaos: Chaos{
-			ErrorRate:    0.1,
-			DelayRate:    0.15,
-			MaxDelayMs:   1000,
+			ErrorRate:  0.1,
+			DelayRate:  0.15,
+			MaxDelayMs: 1000,
 		},
 		WebPort:     "3002",
 		MetricsPort: "9090",

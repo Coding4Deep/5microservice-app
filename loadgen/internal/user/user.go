@@ -26,7 +26,7 @@ type User struct {
 
 func New(id int, cfg *config.Config) *User {
 	username := fmt.Sprintf("user_%d", id)
-	
+
 	return &User{
 		ID:       id,
 		Username: username,
@@ -40,7 +40,7 @@ func New(id int, cfg *config.Config) *User {
 
 func (u *User) Run(ctx context.Context) {
 	defer metrics.ActiveUsers.Dec()
-	
+
 	log.Printf("User %s starting simulation", u.Username)
 
 	// Login/Register
@@ -85,7 +85,7 @@ func (u *User) Run(ctx context.Context) {
 			action := u.selectAction(serviceUsed)
 			action(ctx)
 			cycleCount++
-			
+
 			u.idle()
 		}
 	}
@@ -181,7 +181,7 @@ func (u *User) authenticate(ctx context.Context) error {
 			return fmt.Errorf("login after register failed: %w", err)
 		}
 	}
-	
+
 	u.Token = token
 	u.UserID = fmt.Sprintf("%d", u.ID) // Use user ID for profile operations
 	log.Printf("User %s authenticated", u.Username)
@@ -196,7 +196,7 @@ func (u *User) performRandomAction(ctx context.Context) {
 		u.sendChatMessage,
 		u.readChatMessages,
 	}
-	
+
 	action := actions[rand.Intn(len(actions))]
 	action(ctx)
 }

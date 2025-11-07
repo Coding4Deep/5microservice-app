@@ -41,7 +41,7 @@ type AuthResponse struct {
 
 func NewAuth(cfg *config.Config) *AuthBehavior {
 	client := &http.Client{Timeout: 10 * time.Second}
-	
+
 	// Add chaos middleware if configured
 	if cfg.Chaos.ErrorRate > 0 || cfg.Chaos.DelayRate > 0 {
 		chaos := &chaosTransport{
@@ -53,7 +53,7 @@ func NewAuth(cfg *config.Config) *AuthBehavior {
 		}
 		client.Transport = chaos
 	}
-	
+
 	return &AuthBehavior{
 		baseURL: cfg.Services.UserService.BaseURL,
 		client:  client,
@@ -74,7 +74,7 @@ func (ct *chaosTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	resp, err := ct.base.RoundTrip(req)
-	
+
 	// Random error injection
 	if err == nil && rand.Float64() < ct.config.ErrorRate {
 		log.Printf("🌪️ Chaos: Injecting 500 error for %s", req.URL.Path)

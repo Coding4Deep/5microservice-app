@@ -1,9 +1,9 @@
 package metrics
 
 import (
-	"net/http"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"net/http"
 )
 
 var (
@@ -46,12 +46,12 @@ func init() {
 func StartServer(addr string) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	
+
 	server := &http.Server{
 		Addr:    addr,
 		Handler: mux,
 	}
-	
+
 	go server.ListenAndServe()
 	return server
 }

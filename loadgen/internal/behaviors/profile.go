@@ -74,7 +74,7 @@ func (p *ProfileBehavior) UpdateProfile(ctx context.Context, token, userID strin
 
 	status := fmt.Sprintf("%d", resp.StatusCode)
 	metrics.RequestsTotal.WithLabelValues("profile", "update_profile", status).Inc()
-	
+
 	if resp.StatusCode == http.StatusOK {
 		log.Printf("✅ Updated profile for user %s", userID)
 	} else {
