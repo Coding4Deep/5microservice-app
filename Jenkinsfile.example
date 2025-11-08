@@ -1,0 +1,39 @@
+@Library('webChatShared@master') _
+
+pipeline {
+  agent any
+  stages {
+    stage('Build & Test') {
+      steps {
+        script {
+          // adapt per service
+          checkoutAndBuild(buildCommand: 'npm ci && npm run build')
+          runTests(testCommand: 'npm test')
+        }
+      }
+    }
+
+    stage('Docker') {
+      steps {
+        script {
+          def image = "myregistry/${env.JOB_NAME}:${env.BUILD_NUMBER}"
+          buildDocker(image: image)
+          publishDocker(image: image, registryUrl: 'https://registry.hub.docker.com', credentialsId: 'dockerhub-creds')
+        }
+      }
+    }
+
+    stage('Deploy') {
+      steps {
+        script {
+          k8sDeploy(k8sManifest: 'k8s/')
+        }
+      }
+    }
+  }
+  post {
+    always {
+      script { notify(status: currentBuild.currentResult, email: 'team@example.com') }
+    }
+  }
+}

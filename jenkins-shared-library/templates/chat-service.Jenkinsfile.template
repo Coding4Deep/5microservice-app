@@ -1,0 +1,22 @@
+// Minimal tokenized template for automated instantiation
+pipeline {
+  agent any
+  environment {
+    SERVICE_NAME = '{{SERVICE_NAME}}'
+    DOCKER_REGISTRY = '{{DOCKER_REGISTRY}}'
+    IMAGE_NAME = '{{DOCKER_REGISTRY}}/{{SERVICE_NAME}}:{{IMAGE_TAG}}'
+  }
+  stages {
+    stage('Checkout') { steps { checkout scm } }
+    stage('Build') { steps { sh '{{BUILD_CMD}}' } }
+    stage('Test') { steps { sh '{{TEST_CMD}}' } }
+    stage('Docker') {
+      steps {
+        sh "docker build -t {{DOCKER_REGISTRY}}/{{SERVICE_NAME}}:{{IMAGE_TAG}} ."
+        sh "docker push {{DOCKER_REGISTRY}}/{{SERVICE_NAME}}:{{IMAGE_TAG}}"
+      }
+    }
+    stage('Deploy') { steps { sh '{{DEPLOY_CMD}}' } }
+  }
+  post { always { script { slackNotify(channel: '{{SLACK_CHANNEL}}', message: "{{SERVICE_NAME}} build: ${currentBuild.currentResult}") } } }
+}
